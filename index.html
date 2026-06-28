@@ -29,8 +29,37 @@
 </div>
   <div id="__bundler_loading">Unpacking...</div>
 
+  <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js"></script>
   <script>
-    
+// DecompressionStream polyfill for older iOS Safari
+if (typeof DecompressionStream === 'undefined') {
+  self.DecompressionStream = class {
+    constructor(format) { this._format = format; this._chunks = []; }
+    get writable() {
+      const self = this;
+      return new WritableStream({ write(chunk) { self._chunks.push(chunk); }, close() { self._done = true; } });
+    }
+    get readable() {
+      const self = this;
+      return new ReadableStream({ start(controller) {
+        const iv = setInterval(() => {
+          if (!self._done) return;
+          clearInterval(iv);
+          const totalLen = self._chunks.reduce((s, c) => s + c.length, 0);
+          const merged = new Uint8Array(totalLen);
+          let offset = 0;
+          for (const c of self._chunks) { merged.set(c, offset); offset += c.length; }
+          try {
+            const out = fflate.decompressSync(merged);
+            controller.enqueue(out);
+          } catch(e) { controller.error(e); }
+          controller.close();
+        }, 10);
+      }});
+    }
+  };
+}
+
 document.addEventListener('DOMContentLoaded', async function() {
   const loading = document.getElementById('__bundler_loading');
   function setStatus(msg) { if (loading) loading.textContent = msg; }
